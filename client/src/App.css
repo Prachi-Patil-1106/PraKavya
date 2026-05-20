@@ -354,6 +354,26 @@ body {
   transform: scale(1.15);
 }
 
+.footer-actions { display: flex; gap: 4px; }
+
+.footer-btn {
+  background: transparent;
+  border: 1px solid var(--border-lt);
+  color: var(--ink-faded);
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.13s;
+  padding: 0;
+  line-height: 1;
+}
+.footer-btn:hover { color: var(--red); border-color: var(--red); }
+
 /* ══════════════════════════════════
    WELCOME
 ══════════════════════════════════ */

@@ -7,7 +7,7 @@ const THEMES = [
   { id: 'shyam',      label: 'श्याम',    swatch: '#0c1440', border: '#c8a020' },
 ];
 
-export default function Sidebar({ poems, selectedId, onSelect, onNew, filter, setFilter, loading, totalCount, theme, setTheme }) {
+export default function Sidebar({ poems, selectedId, onSelect, onNew, filter, setFilter, loading, totalCount, theme, setTheme, onExport, onImport }) {
   const allTags = [...new Set(poems.flatMap(p => p.tags))].filter(Boolean).sort();
 
   return (
@@ -89,6 +89,20 @@ export default function Sidebar({ poems, selectedId, onSelect, onNew, filter, se
             />
           ))}
         </div>
+
+        <div className="footer-actions">
+          <button className="footer-btn" title="कविता export करा" onClick={onExport}>↓</button>
+          <label className="footer-btn" title="कविता import करा" style={{ cursor: 'pointer' }}>
+            ↑
+            <input
+              type="file"
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={e => { if (e.target.files[0]) onImport(e.target.files[0]); e.target.value = ''; }}
+            />
+          </label>
+        </div>
+
         {totalCount > 0 && <span className="poem-count">{totalCount} कविता</span>}
       </div>
     </aside>

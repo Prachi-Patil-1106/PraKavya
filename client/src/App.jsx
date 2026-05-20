@@ -4,7 +4,22 @@ import PoemEditor from './components/PoemEditor';
 import PoemViewer from './components/PoemViewer';
 import Welcome from './components/Welcome';
 
-const API = '/api';
+const STORAGE_KEY = 'prakavya-poems';
+
+function loadPoems() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function savePoems(poems) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(poems));
+}
+
+function nextId(poems) {
+  return poems.length === 0 ? 1 : Math.max(...poems.map(p => p.id)) + 1;
+}
+
+function now() { return new Date().toISOString(); }
 
 export default function App() {
   const [poems, setPoems] = useState([]);
@@ -21,7 +36,7 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    fetchPoems();
+    refreshPoems();
   }, [filter.category, filter.tag]);
 
   useEffect(() => {
@@ -37,15 +52,14 @@ export default function App() {
     }
   }, [filter.search, allPoems]);
 
-  async function fetchPoems() {
+  function refreshPoems() {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (filter.category) params.set('category', filter.category);
-    if (filter.tag) params.set('tag', filter.tag);
-    const res = await fetch(`${API}/poems?${params}`);
-    const data = await res.json();
-    setAllPoems(data);
-    setPoems(data);
+    let all = loadPoems();
+    if (filter.category) all = all.filter(p => p.category === filter.category);
+    if (filter.tag)      all = all.filter(p => p.tags.includes(filter.tag));
+    all.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    setAllPoems(all);
+    setPoems(all);
     setLoading(false);
   }
 
@@ -59,48 +73,66 @@ export default function App() {
     setView('editor');
   }
 
-  async function handleSavePoem(data) {
+  function handleSavePoem(data) {
+    const poems = loadPoems();
     if (selectedPoem?.id) {
-      const res = await fetch(`${API}/poems/${selectedPoem.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const updated = await res.json();
-      setSelectedPoem(updated);
-      setView('viewer');
+      const idx = poems.findIndex(p => p.id === selectedPoem.id);
+      poems[idx] = { ...poems[idx], ...data, updated_at: now() };
+      savePoems(poems);
+      setSelectedPoem(poems[idx]);
     } else {
-      const res = await fetch(`${API}/poems`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const created = await res.json();
-      setSelectedPoem(created);
-      setView('viewer');
+      const poem = { id: nextId(poems), ...data, created_at: now(), updated_at: now() };
+      poems.push(poem);
+      savePoems(poems);
+      setSelectedPoem(poem);
     }
-    fetchPoems();
+    setView('viewer');
+    refreshPoems();
   }
 
-  async function handleDeletePoem(id) {
+  function handleDeletePoem(id) {
     if (!window.confirm('हि कविता कायमची हटवायची का?')) return;
-    await fetch(`${API}/poems/${id}`, { method: 'DELETE' });
+    savePoems(loadPoems().filter(p => p.id !== id));
     setSelectedPoem(null);
     setView('welcome');
-    fetchPoems();
+    refreshPoems();
   }
 
   function handleCancel() {
-    if (selectedPoem?.id) {
-      setView('viewer');
-    } else {
-      setView('welcome');
-    }
+    setView(selectedPoem?.id ? 'viewer' : 'welcome');
+  }
+
+  function handleExport() {
+    const poems = loadPoems();
+    const blob = new Blob([JSON.stringify(poems, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `prakavya-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImport(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const imported = JSON.parse(e.target.result);
+        if (!Array.isArray(imported)) throw new Error();
+        savePoems(imported);
+        setSelectedPoem(null);
+        setView('welcome');
+        refreshPoems();
+      } catch {
+        alert('अवैध फाईल — valid Prakavya JSON file निवडा.');
+      }
+    };
+    reader.readAsText(file);
   }
 
   return (
     <div className="app">
-      {/* SVG filter for parchment torn-edge effect — applied only to the background layer */}
+      {/* SVG filter for parchment torn-edge effect */}
       <svg style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0 }} aria-hidden="true">
         <defs>
           <filter id="parchment-torn" x="-15%" y="-15%" width="130%" height="130%">
@@ -121,12 +153,14 @@ export default function App() {
         totalCount={allPoems.length}
         theme={theme}
         setTheme={setTheme}
+        onExport={handleExport}
+        onImport={handleImport}
       />
       <main className="main">
         {view === 'welcome' && <Welcome onNew={handleNewPoem} count={allPoems.length} />}
         {view === 'editor' && (
           <PoemEditor
-            poem={view === 'editor' ? selectedPoem : null}
+            poem={selectedPoem}
             onSave={handleSavePoem}
             onCancel={handleCancel}
           />
@@ -134,7 +168,7 @@ export default function App() {
         {view === 'viewer' && selectedPoem && (
           <PoemViewer
             poem={selectedPoem}
-            onEdit={() => { setView('editor'); }}
+            onEdit={() => setView('editor')}
             onDelete={() => handleDeletePoem(selectedPoem.id)}
           />
         )}
