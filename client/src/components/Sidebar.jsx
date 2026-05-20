@@ -7,7 +7,7 @@ const THEMES = [
   { id: 'shyam',      label: 'श्याम',    swatch: '#0c1440', border: '#c8a020' },
 ];
 
-export default function Sidebar({ poems, selectedId, onSelect, onNew, filter, setFilter, loading, totalCount, theme, setTheme, onExport, onImport }) {
+export default function Sidebar({ poems, selectedId, onSelect, onNew, filter, setFilter, loading, totalCount, theme, setTheme, onExport, onImport, user, onSignOut }) {
   const allTags = [...new Set(poems.flatMap(p => p.tags))].filter(Boolean).sort();
 
   return (
@@ -18,6 +18,14 @@ export default function Sidebar({ poems, selectedId, onSelect, onNew, filter, se
           <span className="brand-en">Prakavya</span>
         </div>
         <button className="btn-new" onClick={onNew}>+ नवी कविता</button>
+
+        {user && (
+          <div className="sidebar-user">
+            {user.photoURL && <img src={user.photoURL} className="user-avatar" referrerPolicy="no-referrer" alt="" />}
+            <span className="user-name">{user.displayName?.split(' ')[0]}</span>
+            <button className="btn-signout" onClick={onSignOut} title="बाहेर पडा">⏏</button>
+          </div>
+        )}
       </div>
 
       <div className="sidebar-search">

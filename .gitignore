@@ -10,6 +10,10 @@ client/.vite/
 # Poem data (personal — keep local)
 server/data/
 
+# Firebase secrets — NEVER commit these
+client/.env
+client/.env.local
+
 # Logs
 *.log
 npm-debug.log*

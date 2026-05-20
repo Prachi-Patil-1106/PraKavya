@@ -1,44 +1,72 @@
 import { useState, useEffect } from 'react';
-import Sidebar from './components/Sidebar';
+import {
+  collection, getDocs, addDoc, updateDoc, deleteDoc,
+  doc, query, orderBy, serverTimestamp, writeBatch, Timestamp,
+} from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db, auth } from './firebase';
+
+import Sidebar    from './components/Sidebar';
 import PoemEditor from './components/PoemEditor';
 import PoemViewer from './components/PoemViewer';
-import Welcome from './components/Welcome';
+import Welcome    from './components/Welcome';
+import Login      from './components/Login';
 
-const STORAGE_KEY = 'prakavya-poems';
-
-function loadPoems() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-  catch { return []; }
+// ── Firestore helpers ──────────────────────────────────────────
+function poemsCol(uid) {
+  return collection(db, 'users', uid, 'poems');
 }
 
-function savePoems(poems) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(poems));
+function docToPoem(d) {
+  const data = d.data();
+  return {
+    id:         d.id,
+    title:      data.title    || '',
+    content:    data.content  || '',
+    category:   data.category || 'kavita',
+    tags:       data.tags     || [],
+    language:   data.language || 'mr',
+    created_at: data.created_at?.toDate?.().toISOString() ?? new Date().toISOString(),
+    updated_at: data.updated_at?.toDate?.().toISOString() ?? new Date().toISOString(),
+  };
 }
 
-function nextId(poems) {
-  return poems.length === 0 ? 1 : Math.max(...poems.map(p => p.id)) + 1;
-}
-
-function now() { return new Date().toISOString(); }
-
+// ── App ────────────────────────────────────────────────────────
 export default function App() {
-  const [poems, setPoems] = useState([]);
-  const [allPoems, setAllPoems] = useState([]);
-  const [view, setView] = useState('welcome');
-  const [selectedPoem, setSelectedPoem] = useState(null);
-  const [filter, setFilter] = useState({ category: '', tag: '', search: '' });
-  const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState(() => localStorage.getItem('prakavya-theme') || 'manuscript');
+  const [user,        setUser]        = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
+  const [poems,    setPoems]    = useState([]);
+  const [allPoems, setAllPoems] = useState([]);
+  const [view,     setView]     = useState('welcome');
+  const [selected, setSelected] = useState(null);
+  const [filter,   setFilter]   = useState({ category: '', tag: '', search: '' });
+  const [loading,  setLoading]  = useState(false);
+
+  const [theme, setTheme] = useState(
+    () => localStorage.getItem('prakavya-theme') || 'manuscript'
+  );
+
+  // Theme persistence
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('prakavya-theme', theme);
   }, [theme]);
 
+  // Auth listener
   useEffect(() => {
-    refreshPoems();
-  }, [filter.category, filter.tag]);
+    return onAuthStateChanged(auth, u => {
+      setUser(u);
+      setAuthLoading(false);
+    });
+  }, []);
 
+  // Load poems when user or category/tag filter changes
+  useEffect(() => {
+    if (user) refreshPoems();
+  }, [user, filter.category, filter.tag]);
+
+  // Client-side search filter
   useEffect(() => {
     if (!filter.search.trim()) {
       setPoems(allPoems);
@@ -52,75 +80,81 @@ export default function App() {
     }
   }, [filter.search, allPoems]);
 
-  function refreshPoems() {
+  // ── Firestore CRUD ───────────────────────────────────────────
+  async function refreshPoems() {
     setLoading(true);
-    let all = loadPoems();
-    if (filter.category) all = all.filter(p => p.category === filter.category);
-    if (filter.tag)      all = all.filter(p => p.tags.includes(filter.tag));
-    all.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-    setAllPoems(all);
-    setPoems(all);
-    setLoading(false);
+    try {
+      const snap = await getDocs(query(poemsCol(user.uid), orderBy('updated_at', 'desc')));
+      let all = snap.docs.map(docToPoem);
+      if (filter.category) all = all.filter(p => p.category === filter.category);
+      if (filter.tag)      all = all.filter(p => p.tags.includes(filter.tag));
+      setAllPoems(all);
+      setPoems(all);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleSelectPoem(poem) {
-    setSelectedPoem(poem);
-    setView('viewer');
-  }
-
-  function handleNewPoem() {
-    setSelectedPoem(null);
-    setView('editor');
-  }
-
-  function handleSavePoem(data) {
-    const poems = loadPoems();
-    if (selectedPoem?.id) {
-      const idx = poems.findIndex(p => p.id === selectedPoem.id);
-      poems[idx] = { ...poems[idx], ...data, updated_at: now() };
-      savePoems(poems);
-      setSelectedPoem(poems[idx]);
+  async function handleSavePoem(data) {
+    if (selected?.id) {
+      await updateDoc(doc(db, 'users', user.uid, 'poems', selected.id), {
+        ...data, updated_at: serverTimestamp(),
+      });
+      const updated = { ...selected, ...data, updated_at: new Date().toISOString() };
+      setSelected(updated);
     } else {
-      const poem = { id: nextId(poems), ...data, created_at: now(), updated_at: now() };
-      poems.push(poem);
-      savePoems(poems);
-      setSelectedPoem(poem);
+      const ref = await addDoc(poemsCol(user.uid), {
+        ...data,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      });
+      setSelected({
+        id: ref.id, ...data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
     }
     setView('viewer');
     refreshPoems();
   }
 
-  function handleDeletePoem(id) {
+  async function handleDeletePoem(id) {
     if (!window.confirm('हि कविता कायमची हटवायची का?')) return;
-    savePoems(loadPoems().filter(p => p.id !== id));
-    setSelectedPoem(null);
+    await deleteDoc(doc(db, 'users', user.uid, 'poems', id));
+    setSelected(null);
     setView('welcome');
     refreshPoems();
   }
 
-  function handleCancel() {
-    setView(selectedPoem?.id ? 'viewer' : 'welcome');
-  }
-
-  function handleExport() {
-    const poems = loadPoems();
-    const blob = new Blob([JSON.stringify(poems, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `prakavya-${new Date().toISOString().slice(0, 10)}.json`;
+  // ── Export / Import ──────────────────────────────────────────
+  async function handleExport() {
+    const snap  = await getDocs(poemsCol(user.uid));
+    const poems = snap.docs.map(docToPoem);
+    const blob  = new Blob([JSON.stringify(poems, null, 2)], { type: 'application/json' });
+    const url   = URL.createObjectURL(blob);
+    const a     = Object.assign(document.createElement('a'), {
+      href: url, download: `prakavya-${new Date().toISOString().slice(0, 10)}.json`,
+    });
     a.click();
     URL.revokeObjectURL(url);
   }
 
   function handleImport(file) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const imported = JSON.parse(e.target.result);
         if (!Array.isArray(imported)) throw new Error();
-        savePoems(imported);
-        setSelectedPoem(null);
+        const batch = writeBatch(db);
+        imported.forEach(({ id: _id, created_at, updated_at, ...data }) => {
+          batch.set(doc(poemsCol(user.uid)), {
+            ...data,
+            created_at: Timestamp.fromDate(new Date(created_at || Date.now())),
+            updated_at: Timestamp.fromDate(new Date(updated_at || Date.now())),
+          });
+        });
+        await batch.commit();
+        setSelected(null);
         setView('welcome');
         refreshPoems();
       } catch {
@@ -130,9 +164,27 @@ export default function App() {
     reader.readAsText(file);
   }
 
+  function handleSignOut() {
+    signOut(auth);
+    setSelected(null);
+    setView('welcome');
+    setAllPoems([]);
+    setPoems([]);
+  }
+
+  // ── Render ───────────────────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div className="app-loading">
+        <span className="app-loading-sym">ॐ</span>
+      </div>
+    );
+  }
+
+  if (!user) return <Login />;
+
   return (
     <div className="app">
-      {/* SVG filter for parchment torn-edge effect */}
       <svg style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0 }} aria-hidden="true">
         <defs>
           <filter id="parchment-torn" x="-15%" y="-15%" width="130%" height="130%">
@@ -144,9 +196,9 @@ export default function App() {
 
       <Sidebar
         poems={poems}
-        selectedId={selectedPoem?.id}
-        onSelect={handleSelectPoem}
-        onNew={handleNewPoem}
+        selectedId={selected?.id}
+        onSelect={p => { setSelected(p); setView('viewer'); }}
+        onNew={() => { setSelected(null); setView('editor'); }}
         filter={filter}
         setFilter={setFilter}
         loading={loading}
@@ -155,21 +207,24 @@ export default function App() {
         setTheme={setTheme}
         onExport={handleExport}
         onImport={handleImport}
+        user={user}
+        onSignOut={handleSignOut}
       />
+
       <main className="main">
-        {view === 'welcome' && <Welcome onNew={handleNewPoem} count={allPoems.length} />}
-        {view === 'editor' && (
+        {view === 'welcome' && <Welcome onNew={() => { setSelected(null); setView('editor'); }} count={allPoems.length} />}
+        {view === 'editor'  && (
           <PoemEditor
-            poem={selectedPoem}
+            poem={selected}
             onSave={handleSavePoem}
-            onCancel={handleCancel}
+            onCancel={() => setView(selected?.id ? 'viewer' : 'welcome')}
           />
         )}
-        {view === 'viewer' && selectedPoem && (
+        {view === 'viewer' && selected && (
           <PoemViewer
-            poem={selectedPoem}
+            poem={selected}
             onEdit={() => setView('editor')}
-            onDelete={() => handleDeletePoem(selectedPoem.id)}
+            onDelete={() => handleDeletePoem(selected.id)}
           />
         )}
       </main>
