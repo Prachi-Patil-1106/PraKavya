@@ -3,20 +3,15 @@ import {
   collection, getDocs, addDoc, updateDoc, deleteDoc,
   doc, query, orderBy, serverTimestamp, writeBatch, Timestamp,
 } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { db, auth, isConfigured } from './firebase';
+import { db, isConfigured } from './firebase';
 
 import Sidebar       from './components/Sidebar';
 import PoemEditor    from './components/PoemEditor';
 import PoemViewer    from './components/PoemViewer';
 import Welcome       from './components/Welcome';
-import Login         from './components/Login';
 import SetupRequired from './components/SetupRequired';
 
-// ── Firestore helpers ──────────────────────────────────────────
-function poemsCol(uid) {
-  return collection(db, 'users', uid, 'poems');
-}
+const poemsCol = () => collection(db, 'poems');
 
 function docToPoem(d) {
   const data = d.data();
@@ -32,11 +27,7 @@ function docToPoem(d) {
   };
 }
 
-// ── App ────────────────────────────────────────────────────────
 export default function App() {
-  const [user,        setUser]        = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
   const [poems,    setPoems]    = useState([]);
   const [allPoems, setAllPoems] = useState([]);
   const [view,     setView]     = useState('welcome');
@@ -48,27 +39,15 @@ export default function App() {
     () => localStorage.getItem('prakavya-theme') || 'manuscript'
   );
 
-  // Theme persistence
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('prakavya-theme', theme);
   }, [theme]);
 
-  // Auth listener — only runs when Firebase is configured
   useEffect(() => {
-    if (!isConfigured) return;
-    return onAuthStateChanged(auth, u => {
-      setUser(u);
-      setAuthLoading(false);
-    });
-  }, []);
+    if (isConfigured) refreshPoems();
+  }, [filter.category, filter.tag]);
 
-  // Load poems when user or category/tag filter changes
-  useEffect(() => {
-    if (user) refreshPoems();
-  }, [user, filter.category, filter.tag]);
-
-  // Client-side search filter
   useEffect(() => {
     if (!filter.search.trim()) {
       setPoems(allPoems);
@@ -82,11 +61,10 @@ export default function App() {
     }
   }, [filter.search, allPoems]);
 
-  // ── Firestore CRUD ───────────────────────────────────────────
   async function refreshPoems() {
     setLoading(true);
     try {
-      const snap = await getDocs(query(poemsCol(user.uid), orderBy('updated_at', 'desc')));
+      const snap = await getDocs(query(poemsCol(), orderBy('updated_at', 'desc')));
       let all = snap.docs.map(docToPoem);
       if (filter.category) all = all.filter(p => p.category === filter.category);
       if (filter.tag)      all = all.filter(p => p.tags.includes(filter.tag));
@@ -99,13 +77,13 @@ export default function App() {
 
   async function handleSavePoem(data) {
     if (selected?.id) {
-      await updateDoc(doc(db, 'users', user.uid, 'poems', selected.id), {
+      await updateDoc(doc(db, 'poems', selected.id), {
         ...data, updated_at: serverTimestamp(),
       });
       const updated = { ...selected, ...data, updated_at: new Date().toISOString() };
       setSelected(updated);
     } else {
-      const ref = await addDoc(poemsCol(user.uid), {
+      const ref = await addDoc(poemsCol(), {
         ...data,
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
@@ -122,15 +100,14 @@ export default function App() {
 
   async function handleDeletePoem(id) {
     if (!window.confirm('हि कविता कायमची हटवायची का?')) return;
-    await deleteDoc(doc(db, 'users', user.uid, 'poems', id));
+    await deleteDoc(doc(db, 'poems', id));
     setSelected(null);
     setView('welcome');
     refreshPoems();
   }
 
-  // ── Export / Import ──────────────────────────────────────────
   async function handleExport() {
-    const snap  = await getDocs(poemsCol(user.uid));
+    const snap  = await getDocs(poemsCol());
     const poems = snap.docs.map(docToPoem);
     const blob  = new Blob([JSON.stringify(poems, null, 2)], { type: 'application/json' });
     const url   = URL.createObjectURL(blob);
@@ -149,7 +126,7 @@ export default function App() {
         if (!Array.isArray(imported)) throw new Error();
         const batch = writeBatch(db);
         imported.forEach(({ id: _id, created_at, updated_at, ...data }) => {
-          batch.set(doc(poemsCol(user.uid)), {
+          batch.set(doc(poemsCol()), {
             ...data,
             created_at: Timestamp.fromDate(new Date(created_at || Date.now())),
             updated_at: Timestamp.fromDate(new Date(updated_at || Date.now())),
@@ -166,26 +143,7 @@ export default function App() {
     reader.readAsText(file);
   }
 
-  function handleSignOut() {
-    signOut(auth);
-    setSelected(null);
-    setView('welcome');
-    setAllPoems([]);
-    setPoems([]);
-  }
-
-  // ── Render ───────────────────────────────────────────────────
   if (!isConfigured) return <SetupRequired />;
-
-  if (authLoading) {
-    return (
-      <div className="app-loading">
-        <span className="app-loading-sym">ॐ</span>
-      </div>
-    );
-  }
-
-  if (!user) return <Login />;
 
   return (
     <div className="app">
@@ -211,8 +169,6 @@ export default function App() {
         setTheme={setTheme}
         onExport={handleExport}
         onImport={handleImport}
-        user={user}
-        onSignOut={handleSignOut}
       />
 
       <main className="main">
