@@ -4,13 +4,14 @@ import {
   doc, query, orderBy, serverTimestamp, writeBatch, Timestamp,
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { db, auth } from './firebase';
+import { db, auth, isConfigured } from './firebase';
 
-import Sidebar    from './components/Sidebar';
-import PoemEditor from './components/PoemEditor';
-import PoemViewer from './components/PoemViewer';
-import Welcome    from './components/Welcome';
-import Login      from './components/Login';
+import Sidebar       from './components/Sidebar';
+import PoemEditor    from './components/PoemEditor';
+import PoemViewer    from './components/PoemViewer';
+import Welcome       from './components/Welcome';
+import Login         from './components/Login';
+import SetupRequired from './components/SetupRequired';
 
 // ── Firestore helpers ──────────────────────────────────────────
 function poemsCol(uid) {
@@ -53,8 +54,9 @@ export default function App() {
     localStorage.setItem('prakavya-theme', theme);
   }, [theme]);
 
-  // Auth listener
+  // Auth listener — only runs when Firebase is configured
   useEffect(() => {
+    if (!isConfigured) return;
     return onAuthStateChanged(auth, u => {
       setUser(u);
       setAuthLoading(false);
@@ -173,6 +175,8 @@ export default function App() {
   }
 
   // ── Render ───────────────────────────────────────────────────
+  if (!isConfigured) return <SetupRequired />;
+
   if (authLoading) {
     return (
       <div className="app-loading">

@@ -521,6 +521,41 @@ body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
 
+/* Setup steps */
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}
+
+.setup-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink-mid);
+  line-height: 1.5;
+}
+
+.step-num {
+  font-family: var(--font-dev);
+  font-size: 14px;
+  color: var(--red);
+  font-weight: 700;
+  flex-shrink: 0;
+  width: 18px;
+}
+
+.setup-step code {
+  background: rgba(0,0,0,0.07);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
 /* ══════════════════════════════════
    APP LOADING
 ══════════════════════════════════ */
